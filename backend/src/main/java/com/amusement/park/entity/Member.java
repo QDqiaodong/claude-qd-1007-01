@@ -14,8 +14,9 @@ import lombok.Setter;
 /**
  * 会员：园区年卡/季卡持有人的基础档案。
  *
- * <p>年卡 {@link SeasonPass} 通过共享主键（@PrimaryKeyJoinColumn）复用本实体主键，
- * 因此本实体不持有对 SeasonPass 的反向引用，避免序列化时的循环引用。</p>
+ * <p>年卡 {@link SeasonPass} 与本实体共享主键（season_pass.member_id 即主键也是
+ * 指向 member.id 的外键），因此本实体不持有对 SeasonPass 的反向引用，
+ * 避免序列化时的循环引用。</p>
  */
 @Entity
 @Table(name = "member")

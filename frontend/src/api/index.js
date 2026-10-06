@@ -28,8 +28,8 @@ export default {
   updateRide: (id, d) => call(http.put(`/rides/${id}`, d)),
   transferRide: (id, target) =>
     call(http.post(`/rides/${id}/transfer`, null, params({ target }))),
-  boardRide: (id, heightCm, age) =>
-    call(http.post(`/rides/${id}/board`, null, params({ heightCm, age }))),
+  boardRide: (id, heightCm, age, memberId) =>
+    call(http.post(`/rides/${id}/board`, null, params({ heightCm, age, memberId }))),
 
   // ---------------- 检修安全复核与放行 ----------------
   listInspections: (rideId) => call(http.get(`/rides/${rideId}/inspections`)),

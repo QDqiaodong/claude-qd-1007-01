@@ -33,14 +33,17 @@ CREATE TABLE member (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------- 年卡 / 季卡（共享会员主键） ----------------
--- member_id 既是本表主键，也是指向 member.id 的外键（@PrimaryKeyJoinColumn）。
+-- member_id 既是本表主键，也是指向 member.id 的外键（与 member 共享主键）。
+-- 有效期起止必填且 起 < 止（CHECK 约束，MySQL 8 强制生效）；乘坐核验按 member_id
+-- 主键直连读取，无需额外索引。
 CREATE TABLE season_pass (
     member_id BIGINT NOT NULL PRIMARY KEY,
-    valid_from DATE,
-    valid_to DATE,
-    pass_type VARCHAR(16),
+    valid_from DATE NOT NULL,
+    valid_to DATE NOT NULL,
+    pass_type VARCHAR(16) NOT NULL,
     created_at DATETIME,
-    CONSTRAINT fk_season_pass_member FOREIGN KEY (member_id) REFERENCES member (id)
+    CONSTRAINT fk_season_pass_member FOREIGN KEY (member_id) REFERENCES member (id),
+    CONSTRAINT chk_season_pass_valid_range CHECK (valid_from < valid_to)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------- 游乐设施 ----------------

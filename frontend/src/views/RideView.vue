@@ -18,8 +18,11 @@ function blank() {
 
 const boardDialog = ref(false)
 const boarding = ref(false)
-const boardForm = ref({ id: null, rideName: '', heightCm: '', age: '' })
-const boardResult = ref('')
+const boardForm = ref({ id: null, rideName: '', heightCm: '', age: '', memberId: null })
+const boardResult = ref(null)
+const boardError = ref('')
+const members = ref([])
+const passes = ref([])
 
 // ---------------- 检修安全复核与放行 ----------------
 const checkItems = [
@@ -80,23 +83,54 @@ async function transfer(row, target) {
 }
 
 function openBoard(row) {
-  boardForm.value = { id: row.id, rideName: row.rideName, heightCm: '', age: '' }
-  boardResult.value = ''
+  boardForm.value = { id: row.id, rideName: row.rideName, heightCm: '', age: '', memberId: null }
+  boardResult.value = null
+  boardError.value = ''
   boardDialog.value = true
   error.value = ''; tip.value = ''
+  // 每次打开实时拉取会员与卡片状态：续期/办卡后立即反映，不用旧缓存
+  loadMembersAndPasses()
 }
-async function doBoard() {
-  boarding.value = true; error.value = ''
+async function loadMembersAndPasses() {
   try {
-    await api.boardRide(
+    const [m, p] = await Promise.all([api.listMembers({}), api.listSeasonPasses()])
+    members.value = m || []
+    passes.value = p || []
+  } catch (e) { /* 会员列表加载失败不阻断散客核验 */ }
+}
+
+const passByMember = computed(() => {
+  const map = {}
+  for (const p of passes.value) map[p.memberId] = p
+  return map
+})
+
+// 选中会员的卡片状态提示（仅供参考，最终以服务端实时核验为准）
+const selectedPassHint = computed(() => {
+  const mid = boardForm.value.memberId
+  if (!mid) return ''
+  const p = passByMember.value[mid]
+  if (!p) return '该会员未办理年卡/季卡，选择后核验将被拒绝'
+  return `${p.passType} ${p.validFrom} ~ ${p.validTo}（${p.status}）`
+})
+const selectedPassHintType = computed(() => {
+  const p = passByMember.value[boardForm.value.memberId]
+  if (!p) return 'danger'
+  return p.status === '有效' ? 'success' : p.status === '未生效' ? 'info' : 'danger'
+})
+
+async function doBoard() {
+  boarding.value = true; boardError.value = ''; boardResult.value = null
+  try {
+    boardResult.value = await api.boardRide(
       boardForm.value.id,
       boardForm.value.heightCm === '' ? null : Number(boardForm.value.heightCm),
-      boardForm.value.age === '' ? null : Number(boardForm.value.age)
+      boardForm.value.age === '' ? null : Number(boardForm.value.age),
+      boardForm.value.memberId ? Number(boardForm.value.memberId) : null
     )
-    boardResult.value = '核验通过，可以乘坐 🎉'
   } catch (e) {
-    boardResult.value = ''
-    error.value = e.message
+    // 拒绝原因直接展示服务端 message，与接口返回保持一致
+    boardError.value = e.message
   } finally { boarding.value = false }
 }
 
@@ -241,7 +275,7 @@ onMounted(load)
     <div class="panel">
       <div class="panel-head">
         <span class="panel-title">游乐设施 · 乘坐校验与安全复核</span>
-        <span class="panel-desc">乘坐前校验：设施须开放、身高达标、年龄不超上限；检修后恢复开放须完成安全复核并由负责人放行</span>
+        <span class="panel-desc">乘坐前校验：会员身份（可选）→ 卡片有效期（含首尾）→ 设施开放 → 身高达标 → 年龄不超上限，四类条件同时满足才可乘坐；检修后恢复开放须完成安全复核并由负责人放行</span>
       </div>
 
       <div v-if="error" class="err">{{ error }}</div>
@@ -306,12 +340,24 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="boardDialog" :title="`乘坐校验 · ${boardForm.rideName}`" width="460px">
+    <el-dialog v-model="boardDialog" :title="`乘坐校验 · ${boardForm.rideName}`" width="500px">
+      <div v-if="boardError" class="err" style="margin-bottom: 10px">{{ boardError }}</div>
       <el-form label-width="110px" class="dialog-form">
+        <el-form-item label="会员（可选）">
+          <el-select v-model="boardForm.memberId" placeholder="散客（不选择会员）" clearable filterable style="width: 100%">
+            <el-option v-for="m in members" :key="m.id" :label="`${m.name}（${m.tier}）`" :value="m.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="selectedPassHint" label="卡片状态">
+          <el-tag :type="selectedPassHintType">{{ selectedPassHint }}</el-tag>
+        </el-form-item>
         <el-form-item label="游客身高(cm)"><el-input v-model="boardForm.heightCm" type="number" /></el-form-item>
         <el-form-item label="游客年龄"><el-input v-model="boardForm.age" type="number" /></el-form-item>
         <el-form-item v-if="boardResult" label="结果">
-          <span style="color:#1e8e4e;font-weight:600">{{ boardResult }}</span>
+          <div class="board-ok">
+            <div class="board-ok-title">核验通过，可以乘坐 🎉</div>
+            <div v-for="(c, i) in boardResult.checks" :key="i" class="board-check">✓ {{ c }}</div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -432,6 +478,17 @@ onMounted(load)
 </template>
 
 <style scoped>
+.board-ok {
+  line-height: 1.7;
+}
+.board-ok-title {
+  color: #1e8e4e;
+  font-weight: 600;
+}
+.board-check {
+  font-size: 12px;
+  color: var(--muted);
+}
 .insp-head {
   display: flex;
   align-items: center;

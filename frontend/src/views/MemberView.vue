@@ -17,6 +17,7 @@ function blankMember() { return { name: '', tier: '普通', phone: '' } }
 
 const passDialog = ref(false)
 const passSaving = ref(false)
+const passError = ref('')
 const passForm = ref({ memberId: null, memberName: '', validFrom: '', validTo: '', passType: '年卡' })
 const passTypes = ['年卡', '季卡']
 
@@ -44,6 +45,38 @@ function passText(row) {
   return `${p.passType}（${p.validFrom} ~ ${p.validTo}）`
 }
 
+function passStatus(row) {
+  const p = passMap.value[row.id]
+  return p ? p.status : ''
+}
+
+function statusTagType(s) {
+  return s === '有效' ? 'success' : s === '未生效' ? 'info' : 'danger'
+}
+
+// 当前对话框是否为续期（会员已持卡）
+const isRenew = computed(() => !!(passForm.value.memberId && passMap.value[passForm.value.memberId]))
+const currentPass = computed(() => passMap.value[passForm.value.memberId] || null)
+
+// 办卡/续期表单：日期区间校验（与后端规则一致，先本地拦截）
+function checkPassDates() {
+  if (!passForm.value.validFrom || !passForm.value.validTo) {
+    passError.value = '请选择有效期起和有效期止'
+    return false
+  }
+  if (passForm.value.validFrom >= passForm.value.validTo) {
+    passError.value = '有效期起必须早于有效期止'
+    return false
+  }
+  return true
+}
+
+// 有效期止不能早于或等于有效期起
+function disableInvalidTo(d) {
+  if (!passForm.value.validFrom) return false
+  return d.getTime() <= new Date(passForm.value.validFrom + 'T00:00:00').getTime()
+}
+
 function openCreateMember() { memberForm.value = blankMember(); memberDialog.value = true; tip.value = ''; error.value = '' }
 async function saveMember() {
   saving.value = true; error.value = ''
@@ -57,10 +90,11 @@ async function saveMember() {
 
 function openIssue(row) {
   passForm.value = { memberId: row.id, memberName: row.name, validFrom: '', validTo: '', passType: '年卡' }
-  error.value = ''; tip.value = ''; passDialog.value = true
+  error.value = ''; tip.value = ''; passError.value = ''; passDialog.value = true
 }
 async function savePass() {
-  passSaving.value = true; error.value = ''
+  if (!checkPassDates()) return
+  passSaving.value = true; passError.value = ''
   try {
     await api.issueSeasonPass(passForm.value.memberId, {
       validFrom: passForm.value.validFrom,
@@ -70,7 +104,7 @@ async function savePass() {
     tip.value = `${passForm.value.memberName} 办卡成功`
     passDialog.value = false
     await load()
-  } catch (e) { error.value = e.message } finally { passSaving.value = false }
+  } catch (e) { passError.value = e.message } finally { passSaving.value = false }
 }
 
 function openRenew(row) {
@@ -80,20 +114,21 @@ function openRenew(row) {
     validFrom: p ? p.validFrom : '', validTo: p ? p.validTo : '',
     passType: p ? p.passType : '年卡'
   }
-  error.value = ''; tip.value = ''; passDialog.value = true
+  error.value = ''; tip.value = ''; passError.value = ''; passDialog.value = true
 }
 async function renewPass() {
-  passSaving.value = true; error.value = ''
+  if (!checkPassDates()) return
+  passSaving.value = true; passError.value = ''
   try {
     await api.renewSeasonPass(passForm.value.memberId, {
       validFrom: passForm.value.validFrom,
       validTo: passForm.value.validTo,
       passType: passForm.value.passType
     })
-    tip.value = `${passForm.value.memberName} 已续期`
+    tip.value = `${passForm.value.memberName} 已续期，乘坐核验立即按新有效期生效`
     passDialog.value = false
     await load()
-  } catch (e) { error.value = e.message } finally { passSaving.value = false }
+  } catch (e) { passError.value = e.message } finally { passSaving.value = false }
 }
 
 onMounted(load)
@@ -104,7 +139,7 @@ onMounted(load)
     <div class="panel">
       <div class="panel-head">
         <span class="panel-title">会员与年卡 · 共享主键</span>
-        <span class="panel-desc">会员等级 普通/银卡/金卡；年卡与会员共享主键（@PrimaryKeyJoinColumn）</span>
+        <span class="panel-desc">会员等级 普通/银卡/金卡（等级不等于有效卡）；年卡与会员共享主键（season_pass.member_id = member.id）；卡片状态按当前日期分为 有效 / 未生效 / 已过期，乘坐核验实时读取有效期</span>
       </div>
 
       <div v-if="error" class="err">{{ error }}</div>
@@ -113,6 +148,7 @@ onMounted(load)
       <div class="stat-row">
         <div class="stat"><div class="k">会员数</div><div class="v">{{ members.length }}</div></div>
         <div class="stat"><div class="k">已办卡</div><div class="v">{{ passes.length }}</div></div>
+        <div class="stat"><div class="k">当前有效</div><div class="v">{{ passes.filter(p => p.status === '有效').length }}</div></div>
         <div class="stat"><div class="k">金卡</div><div class="v">{{ members.filter(m => m.tier === '金卡').length }}</div></div>
       </div>
 
@@ -133,9 +169,12 @@ onMounted(load)
           </template>
         </el-table-column>
         <el-table-column prop="phone" label="手机号" width="140" />
-        <el-table-column label="年卡/季卡" min-width="220">
+        <el-table-column label="年卡/季卡" min-width="260">
           <template #default="{ row }">
             <span>{{ passText(row) }}</span>
+            <el-tag v-if="passStatus(row)" size="small" :type="statusTagType(passStatus(row))" style="margin-left: 8px">
+              {{ passStatus(row) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
@@ -164,19 +203,26 @@ onMounted(load)
     </el-dialog>
 
     <el-dialog v-model="passDialog" :title="`年卡/季卡 · ${passForm.memberName}`" width="480px">
+      <div v-if="passError" class="err" style="margin-bottom: 10px">{{ passError }}</div>
       <el-form label-width="90px" class="dialog-form">
+        <el-form-item v-if="isRenew" label="当前状态">
+          <el-tag :type="statusTagType(currentPass.status)">{{ currentPass.status }}</el-tag>
+          <span style="margin-left: 8px; font-size: 12px; color: var(--muted)">
+            {{ currentPass.passType }} {{ currentPass.validFrom }} ~ {{ currentPass.validTo }}
+          </span>
+        </el-form-item>
         <el-form-item label="卡类型">
           <el-radio-group v-model="passForm.passType">
             <el-radio v-for="t in passTypes" :key="t" :value="t">{{ t }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="有效期起"><el-date-picker v-model="passForm.validFrom" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
-        <el-form-item label="有效期止"><el-date-picker v-model="passForm.validTo" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="有效期止"><el-date-picker v-model="passForm.validTo" type="date" value-format="YYYY-MM-DD" :disabled-date="disableInvalidTo" style="width:100%" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="passDialog = false">取消</el-button>
-        <el-button type="primary" :loading="passSaving" @click="passForm.memberId && passMap[passForm.memberId] ? renewPass() : savePass()">
-          {{ passForm.memberId && passMap[passForm.memberId] ? '续期' : '办卡' }}
+        <el-button type="primary" :loading="passSaving" @click="isRenew ? renewPass() : savePass()">
+          {{ isRenew ? '续期' : '办卡' }}
         </el-button>
       </template>
     </el-dialog>

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.amusement.park.common.ApiResponse;
+import com.amusement.park.dto.SeasonPassView;
 import com.amusement.park.entity.SeasonPass;
 import com.amusement.park.service.SeasonPassService;
 
@@ -26,8 +27,9 @@ public class SeasonPassController {
         this.seasonPassService = seasonPassService;
     }
 
+    /** 卡片列表（关联会员姓名/等级，含 有效/未生效/已过期 状态） */
     @GetMapping
-    public ApiResponse<List<SeasonPass>> list() {
+    public ApiResponse<List<SeasonPassView>> list() {
         return ApiResponse.success(seasonPassService.list());
     }
 

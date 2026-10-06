@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.amusement.park.common.ApiResponse;
+import com.amusement.park.dto.BoardResult;
 import com.amusement.park.entity.Ride;
 import com.amusement.park.service.RideService;
 
@@ -52,11 +53,12 @@ public class RideController {
         return ApiResponse.success("状态已更新", rideService.transfer(id, target));
     }
 
-    /** 乘坐校验：身高/年龄不满足限制则拒绝 */
+    /** 乘坐校验：可选会员（memberId）；会员身份/卡片有效期/设施限制任一不满足则拒绝 */
     @PostMapping("/{id}/board")
-    public ApiResponse<Ride> board(@PathVariable Long id,
-                                   @RequestParam(required = false) Integer heightCm,
-                                   @RequestParam(required = false) Integer age) {
-        return ApiResponse.success("核验通过，可以乘坐", rideService.board(id, heightCm, age));
+    public ApiResponse<BoardResult> board(@PathVariable Long id,
+                                          @RequestParam(required = false) Integer heightCm,
+                                          @RequestParam(required = false) Integer age,
+                                          @RequestParam(required = false) Long memberId) {
+        return ApiResponse.success("核验通过，可以乘坐", rideService.board(id, heightCm, age, memberId));
     }
 }

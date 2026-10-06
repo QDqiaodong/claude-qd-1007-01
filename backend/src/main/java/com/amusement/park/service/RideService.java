@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.amusement.park.common.BizException;
 import com.amusement.park.common.Dict;
+import com.amusement.park.dto.BoardResult;
 import com.amusement.park.entity.Ride;
 import com.amusement.park.repository.RideRepository;
 
@@ -28,10 +29,14 @@ public class RideService {
 
     private final RideRepository rideRepository;
     private final RideInspectionService inspectionService;
+    private final BoardVerificationService boardVerificationService;
 
-    public RideService(RideRepository rideRepository, RideInspectionService inspectionService) {
+    public RideService(RideRepository rideRepository,
+                       RideInspectionService inspectionService,
+                       BoardVerificationService boardVerificationService) {
         this.rideRepository = rideRepository;
         this.inspectionService = inspectionService;
+        this.boardVerificationService = boardVerificationService;
     }
 
     public List<Ride> list(String status) {
@@ -159,31 +164,18 @@ public class RideService {
     }
 
     /**
-     * 乘坐校验（开放前校验）。身高/年龄不满足限制则拒绝。
+     * 乘坐校验（开放前校验）：委托给 {@link BoardVerificationService}，把会员身份、
+     * 年卡/季卡有效期与设施状态/身高/年龄限制合并为一次可解释结果。
      *
-     * <p>每次实时读取设施最新状态与限制：放行成功后立即按最新限制生效，
-     * 限制变更也即时反映，无需等待任何缓存刷新。</p>
+     * <p>每次实时读取设施最新状态、限制与卡片有效期：放行/续期成功后立即按最新
+     * 数据生效，无需等待任何缓存刷新或重启。{@code memberId} 为 null 时保留
+     * 原散客流程（只核验设施状态、身高、年龄）。</p>
      *
      * @param heightCm 游客身高（厘米）
      * @param age      游客年龄
+     * @param memberId 会员 id（可选，未选择会员为 null）
      */
-    public Ride board(Long id, Integer heightCm, Integer age) {
-        Ride ride = get(id);
-        if (!"开放".equals(ride.getStatus())) {
-            throw new BizException("设施「" + ride.getRideName() + "」当前为「" + ride.getStatus() + "」，未开放无法乘坐");
-        }
-        if (heightCm == null) {
-            throw new BizException("请填写游客身高（厘米）");
-        }
-        if (ride.getMinHeightCm() != null && heightCm < ride.getMinHeightCm()) {
-            throw new BizException("身高 " + heightCm + "cm 不足，该设施要求至少 " + ride.getMinHeightCm() + "cm");
-        }
-        if (age == null) {
-            throw new BizException("请填写游客年龄");
-        }
-        if (ride.getMaxAge() != null && age > ride.getMaxAge()) {
-            throw new BizException("年龄 " + age + " 岁超过限制，该设施仅限 " + ride.getMaxAge() + " 岁以下游客");
-        }
-        return ride;
+    public BoardResult board(Long id, Integer heightCm, Integer age, Long memberId) {
+        return boardVerificationService.verify(id, heightCm, age, memberId);
     }
 }

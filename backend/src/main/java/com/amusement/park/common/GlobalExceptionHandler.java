@@ -15,6 +15,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     /**
+     * 乘坐核验拒绝：400 + 可解释核验结果（会员身份/卡片有效期/设施限制逐项明细）。
+     * message 与结果中的首要拒绝原因一致，页面直接复用 data.checks 渲染。
+     */
+    @ExceptionHandler(BoardRejectedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleBoardRejected(BoardRejectedException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiResponse<>(false, e.getResult().getReason(), e.getResult()));
+    }
+
+    /**
      * 业务校验失败：400 + 中文业务提示
      */
     @ExceptionHandler(BizException.class)

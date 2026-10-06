@@ -34,18 +34,22 @@ public class SeasonPass {
     @PrimaryKeyJoinColumn(name = "member_id")
     private Member member;
 
-    /** 有效期起 */
-    @Column(name = "valid_from")
+    /** 有效期起（含首尾） */
+    @Column(name = "valid_from", nullable = false)
     private LocalDate validFrom;
 
-    /** 有效期止 */
-    @Column(name = "valid_to")
+    /** 有效期止（含首尾） */
+    @Column(name = "valid_to", nullable = false)
     private LocalDate validTo;
 
     /** 卡类型：年卡 / 季卡 */
-    @Column(name = "pass_type", length = 16)
+    @Column(name = "pass_type", nullable = false, length = 16)
     private String passType;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    /** 最近一次续期时间（未续期为 null；历史行兼容） */
+    @Column(name = "renewed_at")
+    private LocalDateTime renewedAt;
 }

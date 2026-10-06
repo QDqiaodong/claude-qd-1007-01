@@ -34,13 +34,18 @@ CREATE TABLE member (
 
 -- ---------------- 年卡 / 季卡（共享会员主键） ----------------
 -- member_id 既是本表主键，也是指向 member.id 的外键（@PrimaryKeyJoinColumn）。
+-- valid_from / valid_to 不允许 NULL；valid_from <= valid_to（含首尾的闭区间，
+-- 乘坐核验当天落在起止之间即有效）。索引同时覆盖有效期范围查询。
 CREATE TABLE season_pass (
     member_id BIGINT NOT NULL PRIMARY KEY,
-    valid_from DATE,
-    valid_to DATE,
-    pass_type VARCHAR(16),
+    valid_from DATE NOT NULL,
+    valid_to DATE NOT NULL,
+    pass_type VARCHAR(16) NOT NULL,
     created_at DATETIME,
-    CONSTRAINT fk_season_pass_member FOREIGN KEY (member_id) REFERENCES member (id)
+    renewed_at DATETIME,
+    CONSTRAINT fk_season_pass_member FOREIGN KEY (member_id) REFERENCES member (id),
+    CONSTRAINT chk_pass_date_range CHECK (valid_from <= valid_to),
+    INDEX idx_pass_valid_range (valid_from, valid_to)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------- 游乐设施 ----------------

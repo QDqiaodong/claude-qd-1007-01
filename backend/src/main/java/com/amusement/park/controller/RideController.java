@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.amusement.park.common.ApiResponse;
+import com.amusement.park.dto.BoardResult;
 import com.amusement.park.entity.Ride;
 import com.amusement.park.service.RideService;
 
@@ -52,11 +53,20 @@ public class RideController {
         return ApiResponse.success("状态已更新", rideService.transfer(id, target));
     }
 
-    /** 乘坐校验：身高/年龄不满足限制则拒绝 */
+    /**
+     * 乘坐核验：会员身份 — 卡片有效期 — 设施限制一次完成的可解释结果。
+     *
+     * <p>memberId 可空：未选会员走散客流程（设施状态 + 身高 + 年龄）；
+     * 选择会员时必须实时读取该会员共享主键卡片的有效期，四类条件
+     * （有效卡/设施开放/身高达标/年龄达标）全部满足才允许。拒绝时 HTTP 400，
+     * data 中携带各项核验明细，message 与首要拒绝原因一致。</p>
+     */
     @PostMapping("/{id}/board")
-    public ApiResponse<Ride> board(@PathVariable Long id,
-                                   @RequestParam(required = false) Integer heightCm,
-                                   @RequestParam(required = false) Integer age) {
-        return ApiResponse.success("核验通过，可以乘坐", rideService.board(id, heightCm, age));
+    public ApiResponse<BoardResult> board(@PathVariable Long id,
+                                          @RequestParam(required = false) Integer heightCm,
+                                          @RequestParam(required = false) Integer age,
+                                          @RequestParam(required = false) Long memberId) {
+        return ApiResponse.success("核验通过，可以乘坐",
+                rideService.board(id, heightCm, age, memberId));
     }
 }

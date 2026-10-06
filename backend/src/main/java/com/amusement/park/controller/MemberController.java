@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.amusement.park.common.ApiResponse;
+import com.amusement.park.dto.MemberPassOption;
 import com.amusement.park.entity.Member;
 import com.amusement.park.service.MemberService;
 
@@ -29,6 +30,15 @@ public class MemberController {
     @GetMapping
     public ApiResponse<List<Member>> list(@RequestParam(required = false) String tier) {
         return ApiResponse.success(memberService.list(tier));
+    }
+
+    /**
+     * 乘坐弹窗会员选项：会员 + 共享主键卡片有效期 + 当天卡状态的关联查询，
+     * 供设施页乘坐弹窗下拉选择；会员页卡片状态展示也复用同一口径。
+     */
+    @GetMapping("/boarding-options")
+    public ApiResponse<List<MemberPassOption>> boardingOptions(@RequestParam(required = false) String tier) {
+        return ApiResponse.success(memberService.listPassOptions(tier));
     }
 
     @GetMapping("/{id}")

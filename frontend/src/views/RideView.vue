@@ -18,8 +18,24 @@ function blank() {
 
 const boardDialog = ref(false)
 const boarding = ref(false)
-const boardForm = ref({ id: null, rideName: '', heightCm: '', age: '' })
-const boardResult = ref('')
+const boardForm = ref({ id: null, rideName: '', heightCm: '', age: '', memberId: null })
+const boardResult = ref(null)
+const boardError = ref('')
+const memberOptions = ref([])
+const memberOptionsLoading = ref(false)
+
+const selectedOption = computed(() =>
+  memberOptions.value.find(m => m.memberId === boardForm.value.memberId) || null)
+
+function optionLabel(m) {
+  if (m.validFrom) {
+    return `${m.name}（${m.tier}）· ${m.passType} ${m.validFrom}~${m.validTo} · ${m.passStatus}`
+  }
+  return `${m.name}（${m.tier}）· ${m.passStatus}`
+}
+function passTagType(s) {
+  return s === '当前有效' ? 'success' : s === '未生效' ? 'warning' : s === '已过期' ? 'danger' : 'info'
+}
 
 // ---------------- 检修安全复核与放行 ----------------
 const checkItems = [
@@ -79,24 +95,38 @@ async function transfer(row, target) {
   } catch (e) { error.value = e.message }
 }
 
-function openBoard(row) {
-  boardForm.value = { id: row.id, rideName: row.rideName, heightCm: '', age: '' }
-  boardResult.value = ''
+async function openBoard(row) {
+  boardForm.value = { id: row.id, rideName: row.rideName, heightCm: '', age: '', memberId: null }
+  boardResult.value = null
+  boardError.value = ''
   boardDialog.value = true
   error.value = ''; tip.value = ''
+  // 每次打开实时拉取会员与卡片有效期/状态，续期后无需刷新页面即可在本次核验生效
+  memberOptionsLoading.value = true
+  try {
+    memberOptions.value = (await api.listBoardingOptions()) || []
+  } catch (e) {
+    memberOptions.value = []
+    boardError.value = e.message
+  } finally { memberOptionsLoading.value = false }
 }
 async function doBoard() {
-  boarding.value = true; error.value = ''
+  if (boarding.value) return // 防重复点击：核验进行中直接忽略
+  boarding.value = true; boardError.value = ''
+  // clearable 清空时 el-select 可能给出空串，统一归一为 null（散客）
+  const memberId = boardForm.value.memberId ? Number(boardForm.value.memberId) : null
   try {
-    await api.boardRide(
+    const result = await api.boardRide(
       boardForm.value.id,
       boardForm.value.heightCm === '' ? null : Number(boardForm.value.heightCm),
-      boardForm.value.age === '' ? null : Number(boardForm.value.age)
+      boardForm.value.age === '' ? null : Number(boardForm.value.age),
+      memberId
     )
-    boardResult.value = '核验通过，可以乘坐 🎉'
+    boardResult.value = result
   } catch (e) {
-    boardResult.value = ''
-    error.value = e.message
+    // 拒绝时后端返回逐项核验明细；无明细（如设施不存在）退回统一文案
+    boardResult.value = e.data || null
+    boardError.value = e.message
   } finally { boarding.value = false }
 }
 
@@ -241,7 +271,7 @@ onMounted(load)
     <div class="panel">
       <div class="panel-head">
         <span class="panel-title">游乐设施 · 乘坐校验与安全复核</span>
-        <span class="panel-desc">乘坐前校验：设施须开放、身高达标、年龄不超上限；检修后恢复开放须完成安全复核并由负责人放行</span>
+        <span class="panel-desc">乘坐核验：会员身份—年卡有效期—设施状态/身高/年龄一次完成；未选会员按散客核验，有效卡也不能绕过设施限制；检修后恢复开放须完成安全复核并由负责人放行</span>
       </div>
 
       <div v-if="error" class="err">{{ error }}</div>
@@ -306,14 +336,60 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="boardDialog" :title="`乘坐校验 · ${boardForm.rideName}`" width="460px">
+    <el-dialog v-model="boardDialog" :title="`乘坐核验 · ${boardForm.rideName}`" width="560px">
       <el-form label-width="110px" class="dialog-form">
+        <el-form-item label="选择会员">
+          <el-select
+            v-model="boardForm.memberId"
+            placeholder="不选会员则按散客核验（身高/年龄/设施状态）"
+            clearable filterable
+            :loading="memberOptionsLoading"
+            style="width: 100%"
+            @change="boardResult = null; boardError = ''"
+          >
+            <el-option
+              v-for="m in memberOptions"
+              :key="m.memberId"
+              :label="optionLabel(m)"
+              :value="m.memberId"
+            >
+              <div class="opt-line">
+                <span>{{ m.name }}（{{ m.tier }}）</span>
+                <el-tag size="small" :type="passTagType(m.passStatus)">{{ m.passStatus }}</el-tag>
+              </div>
+              <div class="opt-sub">
+                <template v-if="m.validFrom">{{ m.passType }} {{ m.validFrom }} ~ {{ m.validTo }}</template>
+                <template v-else>尚未办理年卡/季卡（会员等级不等于有效卡）</template>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="selectedOption && !selectedOption.validFrom" label=" ">
+          <span class="warn-note">该会员尚未办卡：选择后核验会因「未办卡」被拒绝，可清空选择改用散客。</span>
+        </el-form-item>
         <el-form-item label="游客身高(cm)"><el-input v-model="boardForm.heightCm" type="number" /></el-form-item>
         <el-form-item label="游客年龄"><el-input v-model="boardForm.age" type="number" /></el-form-item>
-        <el-form-item v-if="boardResult" label="结果">
-          <span style="color:#1e8e4e;font-weight:600">{{ boardResult }}</span>
-        </el-form-item>
       </el-form>
+
+      <!-- 可解释结果：会员身份 — 卡片有效期 — 设施限制逐项展示，文案与接口完全一致 -->
+      <div v-if="boardResult && boardResult.checks" class="board-result">
+        <div :class="boardResult.allowed ? 'board-head ok' : 'board-head fail'">
+          {{ boardResult.allowed ? '✅ ' : '⛔ ' }}{{ boardResult.reason }}
+        </div>
+        <ul class="check-list">
+          <li v-for="c in boardResult.checks" :key="c.key" :class="c.skipped ? 'skip' : c.pass ? 'pass' : 'fail'">
+            <span class="ci-icon">{{ c.skipped ? '—' : c.pass ? '✓' : '✗' }}</span>
+            <div class="ci-body">
+              <div class="ci-label">{{ c.label }}</div>
+              <div class="ci-detail">{{ c.detail }}</div>
+              <div v-if="!c.pass && !c.skipped && c.message" class="ci-msg">{{ c.message }}</div>
+            </div>
+          </li>
+        </ul>
+        <div v-if="!boardResult.allowed" class="board-reason">拒绝原因：{{ boardResult.reason }}</div>
+      </div>
+      <div v-else-if="boardError" class="err">{{ boardError }}</div>
+
       <template #footer>
         <el-button @click="boardDialog = false">关闭</el-button>
         <el-button type="primary" :loading="boarding" @click="doBoard">核验</el-button>
@@ -494,5 +570,73 @@ onMounted(load)
   font-size: 13px;
   font-weight: 700;
   margin-bottom: 8px;
+}
+.opt-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.opt-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.warn-note {
+  font-size: 12px;
+  color: #b36b00;
+}
+.board-result {
+  margin-top: 4px;
+  border-top: 1px dashed #e5d9b8;
+  padding-top: 12px;
+}
+.board-head {
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.board-head.ok {
+  background: #eaf8ef;
+  color: #1e8e4e;
+}
+.board-head.fail {
+  background: #fdecea;
+  color: #c0392b;
+}
+.check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.check-list li {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #faf6ea;
+}
+.check-list li.pass { background: #f1faf3; }
+.check-list li.fail { background: #fdf1ef; }
+.check-list li.skip { background: #f5f5f5; opacity: 0.85; }
+.ci-icon {
+  width: 18px;
+  font-weight: 700;
+}
+li.pass .ci-icon { color: #1e8e4e; }
+li.fail .ci-icon { color: #c0392b; }
+li.skip .ci-icon { color: var(--muted); }
+.ci-label { font-weight: 600; font-size: 13px; }
+.ci-detail { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.ci-msg { font-size: 12px; color: #c0392b; margin-top: 2px; }
+.board-reason {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #c0392b;
 }
 </style>
